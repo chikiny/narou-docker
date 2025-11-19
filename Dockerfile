@@ -8,6 +8,7 @@ ENV AOZORAEPUB3_FILE AozoraEpub3-${AOZORAEPUB3_VERSION}
 
 WORKDIR /temp
 
+# set -x seems just a place folder for inserting comment before wget command
 RUN set -x \
  # install AozoraEpub3
  && wget https://github.com/kyukyunyorituryo/AozoraEpub3/releases/download/v${AOZORAEPUB3_VERSION}/${AOZORAEPUB3_FILE}.zip \
