@@ -14,8 +14,8 @@ RUN set -x \
  && wget https://github.com/kyukyunyorituryo/AozoraEpub3/releases/download/v${AOZORAEPUB3_VERSION}/${AOZORAEPUB3_FILE}.zip \
  && unzip -q ${AOZORAEPUB3_FILE}.zip -d ${AOZORAEPUB3_FILE}\
  && mv ${AOZORAEPUB3_FILE} /aozoraepub3 \
- # install openjdk11
- && apk --no-cache add openjdk11 --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
+ # install openjdk25
+ && apk --no-cache add openjdk25 --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
  # install Narou.rb
  && apk --update --no-cache --virtual .build-deps add \
       build-base \
