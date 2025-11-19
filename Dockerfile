@@ -3,15 +3,15 @@ FROM ruby:3.1.6-alpine3.20
 LABEL maintainer "chikiny <chikiny@gmail.com>"
 
 ENV NAROU_VERSION 3.9.1
-ENV AOZORAEPUB3_VERSION 1.1.0b55Q
+ENV AOZORAEPUB3_VERSION 1.1.1b31Q
 ENV AOZORAEPUB3_FILE AozoraEpub3-${AOZORAEPUB3_VERSION}
 
 WORKDIR /temp
 
 RUN set -x \
  # install AozoraEpub3
- && wget https://github.com/kyukyunyorituryo/AozoraEpub3/releases/download/${AOZORAEPUB3_VERSION}/${AOZORAEPUB3_FILE}.zip \
- && unzip -q ${AOZORAEPUB3_FILE} \
+ && wget https://github.com/kyukyunyorituryo/AozoraEpub3/releases/download/v${AOZORAEPUB3_VERSION}/${AOZORAEPUB3_FILE}.zip \
+ && unzip -q ${AOZORAEPUB3_FILE}.zip -d ${AOZORAEPUB3_FILE}\
  && mv ${AOZORAEPUB3_FILE} /aozoraepub3 \
  # install openjdk11
  && apk --no-cache add openjdk11 --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
