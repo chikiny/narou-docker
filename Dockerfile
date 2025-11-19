@@ -16,12 +16,14 @@ RUN set -x \
  && mv ${AOZORAEPUB3_FILE} /aozoraepub3 \
  # install openjdk25
  && apk --no-cache add openjdk25 --repository=http://dl-cdn.alpinelinux.org/alpine/edge/community \
- # install Narou.rb
+ # install Narou.rb from github directly
  && apk --update --no-cache --virtual .build-deps add \
       build-base \
       make \
       gcc \
- && gem install narou -v ${NAROU_VERSION} --no-document \
+      git \
+ && gem install specific_install \
+ && gem specific_install https://github.com/chikiny/narou_rb develop \
  && apk del --purge .build-deps \
  # setting AozoraEpub3
  && mkdir .narousetting \
