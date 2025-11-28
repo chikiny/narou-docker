@@ -4,7 +4,7 @@ LABEL maintainer="chikiny <chikiny@gmail.com>"
 
 # Mention branch name because forked version will be used
 # Need to modify this point to corresponding branch name
-ENV NAROU_VERSION=work
+ENV NAROU_VERSION=release
 ENV AOZORAEPUB3_VERSION=1.1.1b31Q
 ENV AOZORAEPUB3_FILE=AozoraEpub3-${AOZORAEPUB3_VERSION}
 
