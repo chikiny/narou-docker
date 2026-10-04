@@ -11,7 +11,7 @@ x-narou-image: &narou-image
   environment: &narou-env
     TZ: Asia/Tokyo
     CONVERT_OUTPUT_DIR: /convert_output
-  restart: unless-stopped
+  restart: always
 
 services:
   # narou.rb WEB UI（33000）と WebSocket（33001）
@@ -58,6 +58,6 @@ services:
       TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
     depends_on:
       - narou
-    restart: unless-stopped
+    restart: always
     profiles:
       - tunnel
