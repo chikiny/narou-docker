@@ -17,14 +17,16 @@
                                                 ├─ kfx-watcher コンテナ（EPUB → KFX）
                                                 └─ scheduler コンテナ（毎日の自動更新）
 
-~/narou/novel            小説フォルダ（Mac の /Users/chikiny/convert_mobi/narou/novel を移したもの）
-~/narou/convert_output   変換した EPUB の置き場 → KFX に変換、EPUB は 04_epub/ へ
+~/narou_rb/
+├── narou-docker/     このリポジトリ（.env もここ）
+├── novel/            小説フォルダ（Mac の /Users/chikiny/convert_mobi/narou/novel を移したもの）
+└── convert_output/   変換した EPUB の置き場 → KFX に変換、EPUB は 04_epub/ へ
 ```
 
 - 事実: Cloudflare Tunnel は、サーバー側の `cloudflared` が Cloudflare へ外向きに接続する仕組みなので、ルーターのポート開放や固定 IP は要りません（[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)）。
 - 事実: `cloudflared` は `docker-compose.yml` の `cloudflared` サービスとして動かし、`tunnel` プロファイルを付けたときだけ起動します。
 - 事実: Narou.rb の WEB UI は画面（33000）とは別に、進捗表示用の WebSocket（33001）を使います。トンネル経由（https・ポート指定なし）で開いたときは、Fork 版の Narou.rb が `wss://<ホスト>/ws/` に接続するので、トンネル側で `/ws` を 33001 に振り分けます（[1-7](#1-7-ドメインをアプリにつなぐpublished-application)）。
-- 事実: 小説データはホストの `~/narou/novel` に直接置かれます（Docker ボリュームではありません）。サーバーの `/home/chikiny` は既存の Samba で共有されているので、Mac から `~/narou/convert_output` の KFX を取り出せます。
+- 事実: 小説データはホストの `~/narou_rb/novel` に直接置かれます（Docker ボリュームではありません）。サーバーの `/home/chikiny` は既存の Samba で共有されているので、Mac から `~/narou_rb/convert_output` の KFX を取り出せます。
 
 ## 1. 初回手順
 
@@ -42,11 +44,12 @@ id    # uid=1000(chikiny) gid=1000(chikiny) であることを確認（違えば
 
 ```sh
 ssh ubuntu
-git clone https://github.com/chikiny/narou-docker.git ~/narou-docker
-cd ~/narou-docker
+mkdir -p ~/narou_rb/novel ~/narou_rb/convert_output
+git clone https://github.com/chikiny/narou-docker.git ~/narou_rb/narou-docker
+cd ~/narou_rb/narou-docker
 cp .env.example .env
 chmod 600 .env
-nano .env    # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou/novel と ~/narou/convert_output）
+nano .env    # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou_rb/novel と ~/narou_rb/convert_output）
 ```
 
 ### 1-3. Mac から小説フォルダを移す
@@ -55,14 +58,15 @@ nano .env    # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou/nove
 
 ```sh
 # Mac で実行
-ssh ubuntu 'mkdir -p ~/narou/novel ~/narou/convert_output'
-rsync -a /Users/chikiny/convert_mobi/narou/novel/ ubuntu:narou/novel/
-
-# サーバーでファイル名を NFC に揃える（先に --apply なしで対象を確認できる）
-ssh ubuntu 'python3 ~/narou-docker/scripts/nfc-filenames.py --apply ~/narou/novel'
+# Mac で、このリポジトリを clone した場所から実行する（転送先は空であること）
+python3 scripts/migrate-novel.py /Users/chikiny/convert_mobi/narou/novel ubuntu narou_rb/novel
 ```
 
+- 事実: `migrate-novel.py` は、rsync での転送 → サーバーでファイル名を NFC に揃える（`scripts/nfc-filenames.py`）→ 名前が長すぎて rsync が作れなかったファイルを NFC 名で個別に転送 → 両側のファイル一覧の照合、を順に行います。最後に `不足 0 / 余分 0` と出れば完了です。
+
 - 事実: Mac で作られたファイル名には、濁点などが分解された NFD 形式のものが混ざっています（2026-10-05 時点で約 13.6 万件中 約 3.5 万件。「小説データ」フォルダ自体も NFD）。macOS は正規化の違いを無視して開けますが、Linux はバイト列で比べるので、narou の管理データ（NFC）からフォルダを見つけられず、別のフォルダを作ってしまいます。転送後に必ず NFC に揃えてください。
+- 事実: NFD は濁点 1 文字ぶん長くなるため、長い作品名では Linux（ext4）のファイル名の上限 255 バイトを超え、rsync では作れないものがあります（2026-10-05 時点で 5 件）。NFC にすると収まります。
+- 事実: 揃えた後の転送先に rsync し直すと NFD 名のファイルが別に作られてしまうので、やり直すときは転送先を空にしてから `migrate-novel.py` を実行してください。
 
 - 事実: 小説フォルダは約 10 GB あります（2026-10-04 時点）。
 - 事実: `narou` コンテナは起動時に、小説フォルダの設定のうち環境に依存する値だけを書き換えます。
@@ -76,7 +80,7 @@ ssh ubuntu 'python3 ~/narou-docker/scripts/nfc-filenames.py --apply ~/narou/nove
 
 ```sh
 ssh ubuntu
-cd ~/narou-docker
+cd ~/narou_rb/narou-docker
 docker compose up -d --build     # 初回は OpenSSL・boko・gem のビルドで時間がかかります
 docker compose ps
 docker compose logs narou --tail 30
@@ -99,11 +103,11 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 1. Cloudflare ダッシュボードで **Networking** > **Tunnels** を開き、**Create a tunnel** を押す。
 2. トンネル名（例: `home-narou`）を入れて **Create Tunnel**。
 3. 接続方法で **Docker** を選び、表示されたコマンドの `--token` の後ろ（`eyJ` で始まる文字列）だけをコピーする。**表示されたコマンドは実行しない**。
-4. サーバーの `~/narou-docker/.env` の `TUNNEL_TOKEN=` に貼り付けて保存する。
+4. サーバーの `~/narou_rb/narou-docker/.env` の `TUNNEL_TOKEN=` に貼り付けて保存する。
 5. 起動する。
 
    ```sh
-   cd ~/narou-docker
+   cd ~/narou_rb/narou-docker
    docker compose --profile tunnel up -d
    docker compose --profile tunnel logs cloudflared --tail 20   # "Registered tunnel connection" が出れば接続済み
    ```
@@ -139,8 +143,8 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 
 ### KFX を受け取る
 
-- `kfx-watcher` は `~/narou/convert_output` 直下の EPUB を見張り、書き込みが 15 秒（`KFX_SETTLE_SECONDS`）止まったら `boko convert -O` で KFX を作り、EPUB を `04_epub/` へ移します。
-- Mac からは Samba 共有の `narou/convert_output` に KFX が見えます。Kindle への転送は従来どおり Mac の `kindle-kfx-transfer.zsh` で行います。
+- `kfx-watcher` は `~/narou_rb/convert_output` 直下の EPUB を見張り、書き込みが 15 秒（`KFX_SETTLE_SECONDS`）止まったら `boko convert -O` で KFX を作り、EPUB を `04_epub/` へ移します。
+- Mac からは Samba 共有の `narou_rb/convert_output` に KFX が見えます。Kindle への転送は従来どおり Mac の `kindle-kfx-transfer.zsh` で行います。
 - 変換に失敗した EPUB は `convert_output` に残り、ファイルが更新されるまで再試行しません。原因は `docker compose logs kfx-watcher` で確認し、手で再実行するときは次のようにします。
 
   ```sh
@@ -156,7 +160,7 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 
 ```sh
 ssh ubuntu
-cd ~/narou-docker
+cd ~/narou_rb/narou-docker
 git pull
 docker compose --profile tunnel build --no-cache narou   # Fork の release ブランチを取り直す
 docker compose --profile tunnel up -d
@@ -176,10 +180,10 @@ docker compose exec narou narou list     # narou の CLI も使えます
 
 Cloudflare 側（ドメイン・トンネル・公開ルート・Access）は残っているので、作り直すのはサーバー側だけです。
 
-1. 古いサーバーが動くなら、小説フォルダをサーバーの外へ退避する（例: Mac で `rsync -a ubuntu:narou/novel/ ./novel-backup/`）。
+1. 古いサーバーが動くなら、小説フォルダをサーバーの外へ退避する（例: Mac で `rsync -a ubuntu:narou_rb/novel/ ./novel-backup/`）。
 2. 新しいサーバーに Docker を入れる。
 3. [1-2](#1-2-リポジトリを取ってくる) を行い、`.env` に `TUNNEL_TOKEN` を入れる（トークンは Tunnels の **Overview** > **Add a replica** で再表示できる）。
-4. 退避した小説フォルダを `~/narou/novel` に戻す。
+4. 退避した小説フォルダを `~/narou_rb/novel` に戻す。
 5. `docker compose --profile tunnel up -d --build`。
 6. [1-9](#1-9-外から確認する) で確認する。古いサーバーの `cloudflared` は止めてから手放す。
 
