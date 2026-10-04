@@ -1,119 +1,67 @@
-# Narou.rb Docker Image
+# narou-docker
 
-Narou.rb を Docker で実行するための Docker Image です。<br>
-Docker さえあれば一切環境構築なしで Narou.rb WEB UI を立ち上げることができます。
+[Narou.rb](https://github.com/whiteleaf7/narou) を自宅サーバーの Docker で常駐させ、Cloudflare Tunnel で外出先から WEB UI を開けるようにするための構成です。個人用途向けで、Narou.rb は Fork（[chikiny/narou_rb](https://github.com/chikiny/narou_rb) の `release` ブランチ）を `specific_install` で入れます。
 
-Narou.rb 作者製です。<br>
-~~最新バージョンへの追随は本体とほぼ同時に行う予定です。~~<br>
-Linux 版の kindlegen の配布が終了してしまったため、現在更新停止中です。
+自宅サーバーへの導入手順（初回・運用・再構築）は [docs/self-hosting.md](docs/self-hosting.md) にあります。
 
-イメージ内容は下記で構成されます。
+## 構成
 
-- Alpine Linux
-- Ruby 2.7
-- [改造版AozoraEpub3](https://github.com/kyukyunyorituryo/AozoraEpub3)
-- kindlegen 2.9
+```
+┌──────────────── docker compose ────────────────┐
+│ narou        WEB UI :33000 / WebSocket :33001  │── NOVEL_DIR（小説フォルダ）
+│              変換した EPUB を /convert_output へ │
+│ kfx-watcher  /convert_output を監視し           │── CONVERT_OUTPUT_DIR
+│              boko で EPUB → KFX                 │     ├─ *.kfx（Mac から Kindle へ転送）
+│ scheduler    毎日 NAROU_UPDATE_TIMES に          │     └─ 04_epub/（変換済み EPUB）
+│              WEB UI へ「すべて更新」を依頼        │
+│ cloudflared  Cloudflare Tunnel（tunnel プロファイル）│
+└────────────────────────────────────────────────┘
+```
 
-# 使い方（docker コマンド編)
+| サービス | 内容 |
+| --- | --- |
+| `narou` | `narou web`。起動時に小説フォルダの設定（AozoraEpub3 の場所、`convert.copy-to`）をコンテナ内のパスに合わせる |
+| `kfx-watcher` | `convert_output` 直下に EPUB が置かれると `boko convert -O` で KFX に変換し、EPUB を `04_epub/` へ移す |
+| `scheduler` | `POST /api/update` で WEB UI のキューに更新を積む（CLI の `narou update` を並行して動かさない） |
+| `cloudflared` | `docker compose --profile tunnel up -d` のときだけ起動 |
 
-docker コマンドで直接コンテナを立ち上げます。<br>
-コマンドが長いのでエイリアスを切ったりしましょう。<br>
-後述する docker-compose でやったほうが正直楽です。
+## イメージの中身
 
-コマンドを実行したフォルダが小説管理用のフォルダになるので移動しておきます。
+- Ruby 3.4（Debian trixie）
+- OpenSSL 3.6.5 をソースビルドし、Ruby の openssl gem をこれにリンク（後述）
+- Narou.rb: `gem specific_install -l https://github.com/chikiny/narou_rb -b release`
+- [AozoraEpub3](https://github.com/kyukyunyorituryo/AozoraEpub3) 1.1.1b26Q + OpenJDK 21
+- [boko](https://github.com/chikiny/boko)（Fork、縦書き KFX 対応のコミットを固定）
+
+ビルド時の主な引数（`Dockerfile` の `ARG`）:
+
+| 引数 | 既定値 |
+| --- | --- |
+| `NAROU_REPO` / `NAROU_BRANCH` | `https://github.com/chikiny/narou_rb` / `release` |
+| `BOKO_REPO` / `BOKO_REF` | `https://github.com/chikiny/boko.git` / 縦書き KFX 対応のコミット |
+| `AOZORAEPUB3_VERSION` | `1.1.1b26Q` |
+| `OPENSSL_VERSION` | `3.6.5` |
+
+## ハーメルンが Docker から 403 になる件
+
+ハーメルン（syosetu.org）は Cloudflare の配下にあり、本文ページへのアクセスは TLS の ClientHello の特徴（JA3/JA4 指紋）でボット判定されます。同じ IP・同じヘッダでも、Debian 同梱の OpenSSL 3.5 にリンクされた Ruby は `compress_certificate` 拡張や `ec_point_formats` の違いで判定に引っかかり、本文ページの多くが 403 になります。
+
+そこでイメージ内で OpenSSL 3.6.5 をビルドし、Ruby の openssl gem をそれにリンクしています。これで Mac（Homebrew の OpenSSL 3.6.5）の Ruby と同じ指紋になります。ビルド時に `OpenSSL::OPENSSL_LIBRARY_VERSION` が 3.6 系であることを確認し、違えばビルドを失敗させます。
+
+指紋は次のように確認できます（Mac 側と `ja3` が一致すれば OK）。
 
 ```sh
-$ mkdir ~/novel && cd $_
-$ docker run --rm -it -p 127.0.0.1:33000-33001:33000-33001 -v $(pwd):/novel:cached whiteleaf/narou
+docker compose run --rm --no-deps -e NAROU_SKIP_INIT=1 narou \
+  ruby -rnet/http -rjson -e 'puts JSON.parse(Net::HTTP.get(URI("https://tls.peet.ws/api/all")))["tls"]["ja3_hash"]'
 ```
 
-docker から始まるコマンド１行で WEB UI が起動します。<br>
-http://localhost:33000/ にアクセスしてください。
-
-ポートを変える場合、前半部分の 33000-33001 部分を変更するだけでOKです。<br>
-例えば 8000 ポートに変える場合は -p 127.0.0.1:8000-8001:33000-33001 と
-指定してください（websocket 用のポートのために +1 したポートも併記する必要があります）
-
-# 使い方（docker-compose 編）
-
-docker-compose のほうが楽なので、こちらを推奨します。<br>
-ただし、設定ファイルを１つ用意する必要があります。
-
-コマンドを実行したフォルダが小説管理用のフォルダになるので移動しておきます。
+## よく使うコマンド
 
 ```sh
-$ mkdir ~/novel && cd $_
-```
-
-下記の内容を docker-compose.yml という名前でを同じフォルダに用意します。
-
-```yml
-version: "3.7"
-
-services:
-  app:
-    image: whiteleaf/narou
-    command: ["narou", "web", "-np", "33000"]
-    volumes:
-      - .:/novel:cached
-    tty: true
-    stdin_open: true
-    ports:
-      - "127.0.0.1:33000-33001:33000-33001"
-```
-
-ファイルを用意したら下記コマンドを打ちます。
-
-```sh
-$ docker-compose up
-```
-
-自動的に WEB UI が起動します。<br>
-http://localhost:33000/ にアクセスしてください。
-
-ポートを変える場合は docker コマンドと同様に ports の項の前半部分を変更してください。
-# イメージを更新する
-
-```sh
-$ docker pull whiteleaf/narou
-```
-
-更新がある場合、上記コマンドで環境を最新にできます
-
-# CUI としてコマンドを使いたい場合
-
-## docker で直接使う
-
-```sh
-$ docker run --rm -it -v $(pwd):/novel:cached whiteleaf/narou narou list
-```
-
-## docker-compose で使う
-
-```sh
-docker-compose run --rm app narou list
-```
-
-おまけ<br>
-[dip](https://github.com/bibendi/dip) を使うと便利です
-
-dip.yml として下記を用意して、
-```yml
-version: "4"
-interaction:
-  narou:
-    description: Run narou command
-    service: app
-    command: narou
-```
-
-```sh
-$ dip narou list
-
-# docker-compose up と同じ
-$ dip up
-
-# 下記を実行すると、narou コマンドを透過的に実行出来る様になる
-$ eval "$(dip console)"
-$ narou list
+docker compose up -d --build                  # LAN 内だけで起動
+docker compose --profile tunnel up -d --build # Cloudflare Tunnel も起動
+docker compose logs -f narou kfx-watcher      # ログ
+docker compose exec narou narou list          # narou の CLI（端末から実行。スクリプトから呼ぶときは -T と </dev/null を付ける）
+docker compose exec kfx-watcher convert_epub_kfx.zsh /convert_output/*.epub   # 手動で KFX 変換
+docker compose exec scheduler narou-scheduler.sh --now                        # 今すぐ更新を依頼
 ```

@@ -1,13 +1,63 @@
-version: "3.7"
+# 使い方は docs/self-hosting.md を参照。
+# 小説フォルダと convert_output はホストのディレクトリを .env で指定してマウントする。
+
+x-narou-image: &narou-image
+  build:
+    context: .
+    args:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+  image: narou-docker:latest
+  environment: &narou-env
+    TZ: Asia/Tokyo
+    CONVERT_OUTPUT_DIR: /convert_output
+  restart: unless-stopped
 
 services:
-  app:
-    build: .
-    image: narou
+  # narou.rb WEB UI（33000）と WebSocket（33001）
+  narou:
+    <<: *narou-image
     command: ["narou", "web", "-np", "33000"]
     volumes:
-      - .:/novel:cached
-    tty: true
-    stdin_open: true
+      - ${NOVEL_DIR:?NOVEL_DIR を .env に設定してください}:/novel
+      - ${CONVERT_OUTPUT_DIR:?CONVERT_OUTPUT_DIR を .env に設定してください}:/convert_output
     ports:
-      - "127.0.0.1:33000-33001:33000-33001"
+      - "${NAROU_BIND_ADDR:-127.0.0.1}:33000-33001:33000-33001"
+
+  # convert_output に置かれた EPUB を boko で KFX に変換する
+  kfx-watcher:
+    <<: *narou-image
+    command: ["kfx-watcher.sh"]
+    environment:
+      <<: *narou-env
+      NAROU_SKIP_INIT: "1"
+      KFX_SETTLE_SECONDS: ${KFX_SETTLE_SECONDS:-15}
+    volumes:
+      - ${CONVERT_OUTPUT_DIR}:/convert_output
+
+  # 毎日決まった時刻に WEB UI へ「すべて更新」を依頼する
+  scheduler:
+    <<: *narou-image
+    command: ["narou-scheduler.sh"]
+    environment:
+      <<: *narou-env
+      NAROU_SKIP_INIT: "1"
+      NAROU_URL: http://narou:33000
+      NAROU_UPDATE_TIMES: ${NAROU_UPDATE_TIMES:-05:00}
+      NAROU_WEB_USER: ${NAROU_WEB_USER:-}
+      NAROU_WEB_PASSWORD: ${NAROU_WEB_PASSWORD:-}
+    depends_on:
+      - narou
+
+  # Cloudflare Tunnel で外部に公開するときだけ起動する（docker compose --profile tunnel up -d）。
+  # トークンは .env の TUNNEL_TOKEN に書く（.env はコミットしない）。
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${TUNNEL_TOKEN:-}
+    depends_on:
+      - narou
+    restart: unless-stopped
+    profiles:
+      - tunnel
