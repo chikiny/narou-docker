@@ -1,6 +1,7 @@
 # 動作確認の記録
 
-2026-10-04、Mac（Apple Silicon）の Docker Desktop で `linux/amd64` イメージをビルドして確認しました。サーバー（x86_64 Ubuntu 24.04）での実機確認はまだです。
+2026-10-04、Mac（Apple Silicon）の Docker Desktop で `linux/amd64` イメージをビルドして確認しました。
+同日、サーバー（`ssh ubuntu`、x86_64 Ubuntu 24.04、Docker Compose v5.5.1）でも `docker compose build` し、一時フォルダ（Mac の設定ファイルだけを複製した小説フォルダ）で下記「サーバーでの確認」を行いました。
 
 ## イメージ
 
@@ -41,8 +42,24 @@
 | 配信される `narou.library.js` | ポート指定なしのとき `wss://<ホスト>/ws/` に接続するコードになっている |
 | WebSocket 接続中のエラーログ | 出ない（Linux で EPUB 端末のときの取り外し可否チェックのエラーを Fork 側で修正済み） |
 
+## サーバーでの確認
+
+| 項目 | 結果 |
+| --- | --- |
+| `docker compose build` | 成功（openssl gem は OpenSSL 3.6.5、Narou.rb は GitHub の release から 3.9.4） |
+| TLS 指紋 | JA3 `83702d7e8b362fbe2cf0059c4e12521a`（Mac と一致） |
+| 起動時の設定書き換え | `aozoraepub3dir` と `convert.copy-to` だけ |
+| `GET /` / WebSocket `/ws/` | 200 / 101 |
+| ハーメルン `novel/405165` の取得（自宅回線の IP から） | 全 10 話取得、EPUB 化、`/convert_output` へコピー |
+| kfx-watcher | KFX を作成し EPUB を `04_epub/` へ移動。ファイルの所有者は `chikiny` |
+| scheduler `--now` | HTTP 200、`last_check_date` が 2 秒後に更新 |
+| narou コンテナのエラーログ | 0 件 |
+
+## 気づいたこと
+
+- `docker compose exec -T narou narou ...` のように標準入力が端末でないと、narou は標準入力から対象を読もうとして止まります。スクリプトから呼ぶときは `</dev/null` を付けてください。
+
 ## 未確認
 
-- サーバー（`ssh ubuntu`）でのビルドと起動、実際の小説フォルダ（約 10 GB）での動作
+- 実際の小説フォルダ（約 10 GB）での動作
 - Cloudflare Tunnel の接続、`/ws` の振り分け、Access のログイン
-- 自宅回線の IP からのハーメルン取得（今回の確認は Mac と同じ回線から）
