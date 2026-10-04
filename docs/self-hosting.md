@@ -56,8 +56,13 @@ nano .env    # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou/nove
 ```sh
 # Mac で実行
 ssh ubuntu 'mkdir -p ~/narou/novel ~/narou/convert_output'
-rsync -a --info=progress2 /Users/chikiny/convert_mobi/narou/novel/ ubuntu:narou/novel/
+rsync -a /Users/chikiny/convert_mobi/narou/novel/ ubuntu:narou/novel/
+
+# サーバーでファイル名を NFC に揃える（先に --apply なしで対象を確認できる）
+ssh ubuntu 'python3 ~/narou-docker/scripts/nfc-filenames.py --apply ~/narou/novel'
 ```
+
+- 事実: Mac で作られたファイル名には、濁点などが分解された NFD 形式のものが混ざっています（2026-10-05 時点で約 13.6 万件中 約 3.5 万件。「小説データ」フォルダ自体も NFD）。macOS は正規化の違いを無視して開けますが、Linux はバイト列で比べるので、narou の管理データ（NFC）からフォルダを見つけられず、別のフォルダを作ってしまいます。転送後に必ず NFC に揃えてください。
 
 - 事実: 小説フォルダは約 10 GB あります（2026-10-04 時点）。
 - 事実: `narou` コンテナは起動時に、小説フォルダの設定のうち環境に依存する値だけを書き換えます。
