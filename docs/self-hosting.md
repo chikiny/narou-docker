@@ -6,7 +6,7 @@
 - [2. ふだんの運用](#2-ふだんの運用): 更新・ログ・KFX の受け取り。
 - [3. 再構築手順](#3-再構築手順): サーバーの入れ直しや買い替えで、環境を立ち上げ直すときに行います。
 
-ドメインは `y2privateserver.link`、このアプリの公開 URL は `https://narou.y2privateserver.link/` とします（サブドメインは好みで変えてかまいません）。
+ドメインは `y2privateserver.link`、このアプリの公開 URL は `https://novelmanager.y2privateserver.link/` とします（サブドメインは好みで変えてかまいません）。
 
 ## 0. 全体像
 
@@ -121,8 +121,8 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 
 | 順 | Subdomain | Domain | Path | Service URL |
 | --- | --- | --- | --- | --- |
-| 1 | `narou` | `y2privateserver.link` | `^/ws` | `http://narou:33001` |
-| 2 | `narou` | `y2privateserver.link` | （空欄） | `http://narou:33000` |
+| 1 | `novelmanager` | `y2privateserver.link` | `^/ws` | `http://narou:33001` |
+| 2 | `novelmanager` | `y2privateserver.link` | （空欄） | `http://narou:33000` |
 
 - 事実: Service URL は `cloudflared` コンテナから見た場所なので、サービス名 `narou` で指定します。
 - 事実: Cloudflare Tunnel は WebSocket をそのまま中継します。
@@ -132,11 +132,11 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 
 出典: [Self-hosted public application](https://developers.cloudflare.com/cloudflare-one/access-controls/applications/http-apps/self-hosted-public-app/)
 
-`solt_calculation` の [1-7](https://github.com/chikiny/solt_calculation/blob/master/docs/self-hosting.md) と同じ手順で、`narou.y2privateserver.link` に Access のアプリケーションを作り、Include の **Emails** に自分のメールアドレスだけを入れます。One-time PIN の設定は済んでいるので追加不要です。
+`solt_calculation` の [1-7](https://github.com/chikiny/solt_calculation/blob/master/docs/self-hosting.md) と同じ手順で、`novelmanager.y2privateserver.link` に Access のアプリケーションを作り、Include の **Emails** に自分のメールアドレスだけを入れます。One-time PIN の設定は済んでいるので追加不要です。
 
 ### 1-9. 外から確認する
 
-1. 外出先（またはモバイル回線）のブラウザで `https://narou.y2privateserver.link/` を開く。
+1. 外出先（またはモバイル回線）のブラウザで `https://novelmanager.y2privateserver.link/` を開く。
 2. 小説の一覧が出て、画面下のコンソールに「更新」などの進捗が流れることを確認する（WebSocket が通っている確認）。
 
 ## 2. ふだんの運用
