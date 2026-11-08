@@ -8,7 +8,7 @@ NOVEL_DIR=/novel
 AOZORAEPUB3_DIR=/aozoraepub3
 CONVERT_OUTPUT_DIR=${CONVERT_OUTPUT_DIR:-/convert_output}
 
-# kfx-watcher / scheduler は小説フォルダを触らない
+# epub-sorter / scheduler は小説フォルダを書き換えない（epub-sorter は読み取り専用でマウントする）
 if [[ "${NAROU_SKIP_INIT:-}" == "1" ]]; then
   exec "$@"
 fi
@@ -45,7 +45,7 @@ ruby -ryaml -e '
   end
 ' "$AOZORAEPUB3_DIR"
 
-# 変換した EPUB のコピー先（kfx-watcher が監視する）
+# 変換した EPUB のコピー先（epub-sorter が監視する）
 current_copy_to=$(ruby -ryaml -e 'puts((YAML.unsafe_load_file(".narou/local_setting.yaml") || {})["convert.copy-to"].to_s) rescue puts ""')
 if [[ "$current_copy_to" != "$CONVERT_OUTPUT_DIR" ]]; then
   echo "[init] local_setting: convert.copy-to: \"$current_copy_to\" -> \"$CONVERT_OUTPUT_DIR\""
