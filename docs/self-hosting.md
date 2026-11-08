@@ -3,7 +3,7 @@
 自宅の Ubuntu サーバー（`ssh ubuntu`）で Narou.rb を動かし、Cloudflare で取得したドメインから WEB UI を開けるようにする手順です。
 
 - [1. 初回手順](#1-初回手順): はじめて導入するときに上から順に行います。
-- [2. ふだんの運用](#2-ふだんの運用): 更新・ログ・KFX の受け取り。
+- [2. ふだんの運用](#2-ふだんの運用): 更新・ログ・EPUB の受け取り。
 - [3. 再構築手順](#3-再構築手順): サーバーの入れ直しや買い替えで、環境を立ち上げ直すときに行います。
 
 ドメインは `y2privateserver.link`、このアプリの公開 URL は `https://novelmanager.y2privateserver.link/` とします（サブドメインは好みで変えてかまいません）。
@@ -14,19 +14,19 @@
 ブラウザ ──HTTPS──> Cloudflare ──(トンネル)──> 自宅サーバー
                                                 ├─ cloudflared コンテナ
                                                 ├─ narou コンテナ（WEB UI :33000 / WebSocket :33001）
-                                                ├─ kfx-watcher コンテナ（EPUB → KFX）
+                                                ├─ epub-sorter コンテナ（EPUB の振り分け）
                                                 └─ scheduler コンテナ（毎日の自動更新）
 
 ~/narou_rb/
 ├── narou-docker/     このリポジトリ（.env もここ）
 ├── novel/            小説フォルダ（Mac の /Users/chikiny/convert_mobi/narou/novel を移したもの）
-└── convert_output/   変換した EPUB の置き場 → KFX に変換、EPUB は 04_epub/ へ
+└── convert_output/   変換した EPUB の置き場 → 04_epub/（連載中）か 05_epub_end/（完結・凍結）へ
 ```
 
 - 事実: Cloudflare Tunnel は、サーバー側の `cloudflared` が Cloudflare へ外向きに接続する仕組みなので、ルーターのポート開放や固定 IP は要りません（[Cloudflare Tunnel](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/)）。
 - 事実: `cloudflared` は `docker-compose.yml` の `cloudflared` サービスとして動かし、`tunnel` プロファイルを付けたときだけ起動します。
 - 事実: Narou.rb の WEB UI は画面（33000）とは別に、進捗表示用の WebSocket（33001）を使います。トンネル経由（https・ポート指定なし）で開いたときは、Fork 版の Narou.rb が `wss://<ホスト>/ws/` に接続するので、トンネル側で `/ws` を 33001 に振り分けます（[1-7](#1-7-ドメインをアプリにつなぐpublished-application)）。
-- 事実: 小説データはホストの `~/narou_rb/novel` に直接置かれます（Docker ボリュームではありません）。サーバーの `/home/chikiny` は既存の Samba で共有されているので、Mac から `~/narou_rb/convert_output` の KFX を取り出せます。
+- 事実: 小説データはホストの `~/narou_rb/novel` に直接置かれます（Docker ボリュームではありません）。サーバーの `/home/chikiny` は既存の Samba で共有されているので、Mac から `~/narou_rb/convert_output` の EPUB を取り出せます。
 
 ## 1. 初回手順
 
@@ -141,15 +141,25 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 
 ## 2. ふだんの運用
 
-### KFX を受け取る
+### EPUB を受け取る
 
-- `kfx-watcher` は `~/narou_rb/convert_output` 直下の EPUB を見張り、書き込みが 15 秒（`KFX_SETTLE_SECONDS`）止まったら `boko convert -O` で KFX を作り、EPUB を `04_epub/` へ移します。
-- Mac からは Samba 共有の `narou_rb/convert_output` に KFX が見えます。Kindle への転送は従来どおり Mac の `kindle-kfx-transfer.zsh` で行います。
-- 変換に失敗した EPUB は `convert_output` に残り、ファイルが更新されるまで再試行しません。原因は `docker compose logs kfx-watcher` で確認し、手で再実行するときは次のようにします。
+- `epub-sorter` は `~/narou_rb/convert_output` 直下の EPUB を見張り、書き込みが 15 秒（`EPUB_SETTLE_SECONDS`）止まったら作品の状態で振り分けます。
+  - `04_epub/`: 連載中で、凍結していない作品
+  - `05_epub_end/`: 完結した作品、または凍結した作品
+- 作品は narou と同じ命名規則でファイル名から特定します（分割された `書名_2.epub` なども同じ作品）。行き先の同名ファイルは上書きし、反対側のフォルダにある同じ作品の EPUB（本体と `_2`・`_3` などの分割ファイル）を消します。完結や凍結で状態が変わったあとに変換し直すと、古いほうのフォルダから消えます。
+- 作品が特定できない EPUB（一致する作品がない、または 2 つ以上ある）は `convert_output` 直下に残り、ファイルが更新されるまで再試行しません。理由は `docker compose logs epub-sorter` の「振り分けできません」の行で確認できます。名前に改行やタブを含む EPUB も同じく直下に残ります。
+- narou が管理ファイルを保存している最中に判定した場合などは、その回は何も動かさず、次の回（次のイベントか 10 分ごとの見直し）にやり直します（ログは「作品の判定に失敗しました」「判定できませんでした」）。
+- 小説フォルダは読み取り専用でマウントしています（`epub-sorter` は小説データを書き換えません）。
+- Mac からは Samba 共有の `narou_rb/convert_output` に EPUB が見えます。
+- `convert_output` 直下に残っている EPUB を、いますぐ振り分け直す:
 
   ```sh
-  docker compose exec kfx-watcher convert_epub_kfx.zsh /convert_output/書名.epub
+  docker compose exec epub-sorter epub-sorter.sh --once
   ```
+
+  対象は直下にある EPUB だけです（常駐している `epub-sorter` が再試行しないと決めたものも含めて、もう一度判定します）。常駐している `epub-sorter` が動いたままで実行してかまいません。
+- すでに `04_epub/`・`05_epub_end/` に入っている EPUB は、`--once` でも動きません。凍結を切り替えた作品を反対側へ移すには、narou でその作品を変換し直します。新しい EPUB が直下に置かれて新しい側へ移り、古い側のものは消えます。
+- `kfx-watcher` から切り替えるときは、残った古いコンテナを消すため `docker compose --profile tunnel up -d --remove-orphans` で起動し直します。
 
 ### 自動更新
 

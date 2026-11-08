@@ -24,15 +24,18 @@ services:
     ports:
       - "${NAROU_BIND_ADDR:-127.0.0.1}:33000-33001:33000-33001"
 
-  # convert_output に置かれた EPUB を boko で KFX に変換する
-  kfx-watcher:
+  # convert_output に置かれた EPUB を、連載中は 04_epub/、完結・凍結は 05_epub_end/ へ振り分ける。
+  # 作品の状態を知るため小説フォルダを読み取り専用でマウントする
+  epub-sorter:
     <<: *narou-image
-    command: ["kfx-watcher.sh"]
+    command: ["epub-sorter.sh"]
     environment:
       <<: *narou-env
       NAROU_SKIP_INIT: "1"
-      KFX_SETTLE_SECONDS: ${KFX_SETTLE_SECONDS:-15}
+      EPUB_SETTLE_SECONDS: ${EPUB_SETTLE_SECONDS:-15}
+      EPUB_RESCAN_SECONDS: ${EPUB_RESCAN_SECONDS:-600}
     volumes:
+      - ${NOVEL_DIR}:/novel:ro
       - ${CONVERT_OUTPUT_DIR}:/convert_output
 
   # 毎日決まった時刻に WEB UI へ「すべて更新」を依頼する
