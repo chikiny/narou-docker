@@ -94,6 +94,79 @@ class EpubSorterTest < Minitest::Test
     ], files
   end
 
+  def test_removes_all_parts_from_the_other_side
+    # 連載中に戻った作品（凍結の解除など）。完結側の本体と分割ファイルを全部消す
+    old_side = File.join(@out, "05_epub_end")
+    %w[.epub _2.epub _3.epub].each { |s| touch_epub(old_side, "[作者A] 連載中の作品#{s}", "old") }
+    # 別の名前（narou の分割ファイルの名前ではない）は消さない
+    touch_epub(old_side, "[作者A] 連載中の作品_1.epub", "keep")
+    touch_epub(old_side, "[作者A] 連載中の作品 外伝.epub", "keep")
+    touch_epub(@out, "[作者A] 連載中の作品.epub", "new")
+    log = run_once
+    assert_equal [
+      "04_epub/[作者A] 連載中の作品.epub",
+      "05_epub_end/[作者A] 連載中の作品 外伝.epub",
+      "05_epub_end/[作者A] 連載中の作品_1.epub",
+    ], files
+    assert_includes log, "古い EPUB を消しました: 05_epub_end/[作者A] 連載中の作品_3.epub"
+  end
+
+  def test_removes_other_side_when_a_split_part_moves
+    touch_epub(File.join(@out, "04_epub"), "[作者B] 完結した作品.epub", "old")
+    touch_epub(File.join(@out, "04_epub"), "[作者B] 完結した作品_2.epub", "old")
+    touch_epub(@out, "[作者B] 完結した作品_2.epub", "new")
+    run_once
+    assert_equal ["05_epub_end/[作者B] 完結した作品_2.epub"], files
+  end
+
+  def test_skips_names_with_control_characters
+    touch_epub(@out, "改行\nのある名前.epub")
+    touch_epub(@out, "タブ\tのある名前.epub")
+    touch_epub(@out, "[作者A] 連載中の作品.epub")
+    log = run_once
+    assert_equal [
+      "04_epub/[作者A] 連載中の作品.epub",
+      "タブ\tのある名前.epub",
+      "改行\nのある名前.epub",
+    ], files
+    assert_equal 2, log.scan("ファイル名に制御文字が含まれるため振り分けません").size, log
+  end
+
+  # 監視ループで、判定スクリプトを何回呼ぶかを数える（偽の判定スクリプトを使う）
+  def count_classify_calls(status)
+    stub = File.join(@tmp, "stub-classify.rb")
+    counter = File.join(@tmp, "calls")
+    File.write(stub, <<~RUBY)
+      File.write(#{counter.inspect}, "x", mode: "a")
+      paths = ARGV.drop_while { |a| a != "--novel-dir" }.drop(2)
+      paths.each { |p| puts [p, #{status.inspect}, "テスト", ""].join("\t") }
+    RUBY
+    touch_epub(@out, "どれでもない.epub")
+    env = {
+      "CONVERT_OUTPUT_DIR" => @out, "EPUB_SORTER_NOVEL_DIR" => @novel, "EPUB_SORTER_CLASSIFY" => stub,
+      "EPUB_SETTLE_SECONDS" => "1", "EPUB_RESCAN_SECONDS" => "1",
+    }
+    log = +""
+    Open3.popen2e(env, "bash", SORTER, pgroup: true) do |_in, out, wait|
+      sleep 4.5
+      Process.kill("TERM", -wait.pid)
+      log << out.read
+    end
+    assert File.exist?(File.join(@out, "どれでもない.epub")), "直下に残る"
+    [File.exist?(counter) ? File.read(counter).size : 0, log]
+  end
+
+  def test_unknown_is_not_retried_in_the_loop
+    calls, log = count_classify_calls("unknown")
+    assert_equal 1, calls, log
+  end
+
+  def test_error_is_retried_in_the_loop
+    calls, log = count_classify_calls("error")
+    assert_operator calls, :>=, 2, log
+    assert_match(/判定できませんでした（次の回にやり直します）: どれでもない\.epub/, log)
+  end
+
   def test_does_nothing_without_epubs
     log = run_once
     assert_equal [], files

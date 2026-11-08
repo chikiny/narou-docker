@@ -47,8 +47,9 @@
 narou が変換した EPUB は `convert.copy-to` で `convert_output` 直下にコピーされます。`epub-sorter` はそこを inotify で見張り、書き込みが `EPUB_SETTLE_SECONDS`（既定 15 秒）止まったら 1 冊ずつ振り分けます。取りこぼしに備えて `EPUB_RESCAN_SECONDS`（既定 600 秒）ごとに見直します。
 
 - 作品の特定: 小説フォルダの管理ファイル（`.narou/database.yaml`）の各作品について、narou と同じ方法（`Narou.create_novel_filename`）でファイル名を求め、EPUB の名前と照合します。分割された `書名_2.epub` なども本体と同じ作品として扱います。
-- 行き先: 連載中で凍結していない作品は `04_epub/`、完結した作品か凍結した作品は `05_epub_end/`。行き先にある同じ名前の EPUB は上書きし、反対側のフォルダに同じ名前の EPUB があれば消します（完結や凍結で状態が変わると、古いほうは消えます）。
-- 作品が特定できない EPUB（一致する作品がない、または 2 つ以上ある）は直下に残し、ログに出します。ファイルが更新されるまで再試行しません。
+- 行き先: 連載中で凍結していない作品は `04_epub/`、完結した作品か凍結した作品は `05_epub_end/`。行き先にある同じ名前の EPUB は上書きし、反対側のフォルダにある同じ作品の EPUB（本体と分割ファイル）を消します（完結や凍結で状態が変わったあとに変換し直すと、古いほうは消えます）。
+- 作品が特定できない EPUB（一致する作品がない、または 2 つ以上ある）や、名前に改行・タブを含む EPUB は直下に残し、ログに出します。ファイルが更新されるまで再試行しません。
+- narou が管理ファイルを保存している最中だった場合など、一時的に判定できないときは何も動かさず、次の回にやり直します。
 - EPUB 以外のファイルや、直下のサブフォルダには触りません。
 - 小説フォルダは読み取り専用でマウントし、判定（`bin/epub-sorter-classify.rb`）も読むだけです。
 
@@ -80,6 +81,6 @@ docker compose up -d --build                  # LAN 内だけで起動
 docker compose --profile tunnel up -d --build # Cloudflare Tunnel も起動
 docker compose logs -f narou epub-sorter      # ログ
 docker compose exec narou narou list          # narou の CLI（端末から実行。スクリプトから呼ぶときは -T と </dev/null を付ける）
-docker compose exec epub-sorter epub-sorter.sh --once                         # 直下の EPUB をいま振り分ける
+docker compose exec epub-sorter epub-sorter.sh --once                         # 直下に残っている EPUB をいま振り分け直す
 docker compose exec scheduler narou-scheduler.sh --now                        # 今すぐ更新を依頼
 ```

@@ -37,13 +37,32 @@ class EpubSorterClassifyTest < Minitest::Test
     FileUtils.rm_rf(@tmp)
   end
 
-  def classify(*names, novel_dir: @novel)
+  # 終了コードを確かめずに実行する
+  def run_classify(*names, novel_dir: @novel, env: {})
     paths = names.map { |name| touch_epub(@out, name) }
-    stdout, stderr, status = Open3.capture3("ruby", CLASSIFY, "--novel-dir", novel_dir, *paths)
+    stdout, stderr, status = Open3.capture3(env, "ruby", CLASSIFY, "--novel-dir", novel_dir, *paths)
+    [paths, stdout, stderr, status]
+  end
+
+  # 1 行を [path, dest, reason, base] に分ける
+  def classify_rows(*names, **kw)
+    paths, stdout, stderr, status = run_classify(*names, **kw)
     assert status.success?, "exit=#{status.exitstatus}\n#{stderr}"
-    rows = stdout.lines.map { |line| line.chomp.split("\t", 3) }
-    assert_equal paths, rows.map(&:first), "入力の順に 1 行ずつ出力する\n#{stdout}"
-    rows.to_h { |path, dest, reason| [File.basename(path), [dest, reason]] }
+    rows = stdout.b.lines.map { |line| line.chomp.split("\t".b, -1).map { |c| c.force_encoding(Encoding::UTF_8) } }
+    assert rows.all? { |r| r.size == 4 }, "4 列で出力する\n#{stdout}"
+    assert_equal paths.map(&:b), rows.map { |r| r.first.b }, "入力の順に 1 行ずつ出力する\n#{stdout}"
+    rows
+  end
+
+  def classify(*names, **kw)
+    classify_rows(*names, **kw).to_h { |path, dest, reason, _base| [File.basename(path), [dest, reason]] }
+  end
+
+  def assert_retry_without_output(paths_stdout_stderr_status)
+    _paths, stdout, stderr, status = paths_stdout_stderr_status
+    assert_equal 3, status.exitstatus, "全体をやり直す終了コード\n#{stderr}"
+    assert_equal "", stdout, "途中の結果を出力しない"
+    stderr
   end
 
   def dest_of(name, **kw)
@@ -118,30 +137,83 @@ class EpubSorterClassifyTest < Minitest::Test
     assert_equal before, snapshot(@novel)
   end
 
-  def test_missing_novel_folder_is_skipped_without_writing_database
-    # 保存フォルダが無い作品があると、narou は database から消して保存しようとする。読むだけなので保存させない
+  def test_missing_novel_folder_fails_whole_batch_without_writing
+    # 保存フォルダが無い作品があると、narou は database から消して保存しようとする。保存させず、全体をやり直す
     novel = make_novel_dir(File.join(@tmp, "novel2"), [
       { id: 0, author: "作者A", title: "連載中の作品" },
       { id: 1, author: "作者X", title: "フォルダが無い作品", folder: false },
     ])
     before = snapshot(novel)
+    stderr = assert_retry_without_output(run_classify("[作者A] 連載中の作品.epub", novel_dir: novel))
+    assert_match(/作品 ID 1.*ファイル名を求められません/, stderr)
+    assert_equal before, snapshot(novel)
+    # 読み取り専用でも同じ
     make_read_only(novel)
-    result = classify("[作者A] 連載中の作品.epub", "[作者X] フォルダが無い作品.epub", novel_dir: novel)
-    assert_equal %w[04_epub unknown], result.values.map(&:first)
+    assert_retry_without_output(run_classify("[作者A] 連載中の作品.epub", novel_dir: novel))
     make_writable(novel)
     assert_equal before, snapshot(novel)
   end
 
-  def test_missing_novel_folder_does_not_save_database_even_if_writable
-    # 書き込めるフォルダでも保存しない（ro マウントに頼らない）
-    novel = make_novel_dir(File.join(@tmp, "novel3"), [
-      { id: 0, author: "作者A", title: "連載中の作品" },
-      { id: 1, author: "作者X", title: "フォルダが無い作品", folder: false },
-    ])
-    before = snapshot(novel)
-    result = classify("[作者A] 連載中の作品.epub", novel_dir: novel)
-    assert_equal %w[04_epub], result.values.map(&:first)
-    assert_equal before, snapshot(novel)
+  def test_record_without_end_fails_whole_batch
+    # 保存途中の database.yaml（"end" の前で切れている）を読んだ場合。連載中と誤判定しない
+    path = File.join(@novel, ".narou", "database.yaml")
+    db = YAML.unsafe_load_file(path)
+    db[1].delete("end")
+    File.write(path, YAML.dump(db))
+    stderr = assert_retry_without_output(run_classify("[作者B] 完結した作品.epub", "[作者A] 連載中の作品.epub"))
+    assert_match(/"end" がありません/, stderr)
+  end
+
+  def test_truncated_database_fails_whole_batch_and_is_not_restored
+    path = File.join(@novel, ".narou", "database.yaml")
+    full = File.read(path)
+    File.write("#{path}.backup", full)
+    File.write(path, full[0, full.index("作者B")] + "\"broken: [")
+    before = snapshot(@novel)
+    assert_retry_without_output(run_classify("[作者A] 連載中の作品.epub"))
+    assert_equal before, snapshot(@novel), "narou の .backup からの書き戻しをさせない"
+  end
+
+  def test_freeze_not_a_hash_fails_whole_batch
+    File.write(File.join(@novel, ".narou", "freeze.yaml"), "--- [2]\n")
+    stderr = assert_retry_without_output(run_classify("[作者C] 凍結した作品.epub"))
+    assert_match(/freeze\.yaml/, stderr)
+  end
+
+  def test_settings_changed_during_run_fails_whole_batch
+    %w[database.yaml freeze.yaml local_setting.yaml].each do |name|
+      path = touch_epub(@out, "[作者A] 連載中の作品.epub")
+      env = { "EPUB_SORTER_TEST_DELAY" => "3" }
+      Open3.popen3(env, "ruby", CLASSIFY, "--novel-dir", @novel, path) do |stdin, stdout, stderr, wait|
+        stdin.close
+        sleep 1.5
+        File.write(File.join(@novel, ".narou", name), "\n# narou が保存中\n", mode: "a")
+        status = wait.value
+        assert_equal 3, status.exitstatus, "#{name}: #{stderr.read}"
+        assert_equal "", stdout.read, name
+      end
+    end
+  end
+
+  def test_per_file_exception_is_error_not_unknown
+    # 不正な UTF-8 のファイル名は照合中に例外になる。その冊だけ error（やり直し可）にし、ほかは判定する
+    bad = "壊れた\xFF名前.epub".b
+    rows = classify_rows(bad, "[作者A] 連載中の作品.epub")
+    assert_equal "error", rows[0][1]
+    assert_match(/判定に失敗しました/, rows[0][2])
+    assert_equal "04_epub", rows[1][1]
+  end
+
+  def test_outputs_matched_narou_name
+    rows = classify_rows("[作者A] 連載中の作品_2.epub", "[作者B] 完結した作品.EPUB", "[誰か] 知らない作品.epub")
+    assert_equal ["[作者A] 連載中の作品", "[作者B] 完結した作品", ""], rows.map(&:last)
+  end
+
+  def test_split_suffix_starts_at_2
+    assert_equal "unknown", dest_of("[作者A] 連載中の作品_1.epub")
+    assert_equal "unknown", dest_of("[作者A] 連載中の作品_0.epub")
+    assert_equal "unknown", dest_of("[作者A] 連載中の作品_02.epub")
+    assert_equal "04_epub", dest_of("[作者A] 連載中の作品_10.epub")
   end
 
   def test_fails_when_novel_dir_is_not_narou_root

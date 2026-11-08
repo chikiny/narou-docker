@@ -53,7 +53,8 @@ module EpubSorterTestHelper
 
   def touch_epub(dir, name, body = "epub")
     FileUtils.mkdir_p(dir)
-    path = File.join(dir, name)
+    # 不正な UTF-8 の名前（バイナリ）も作れるようにする
+    path = name.encoding == Encoding::BINARY ? File.join(dir.b, name) : File.join(dir, name)
     File.write(path, body)
     path
   end
