@@ -49,7 +49,7 @@ git clone https://github.com/chikiny/narou-docker.git ~/narou_rb/narou-docker
 cd ~/narou_rb/narou-docker
 cp .env.example .env
 chmod 600 .env
-nano .env    # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou_rb/novel と ~/narou_rb/convert_output）
+vim .env     # NOVEL_DIR / CONVERT_OUTPUT_DIR を確認（既定は ~/narou_rb/novel と ~/narou_rb/convert_output）
 ```
 
 ### 1-3. Mac から小説フォルダを移す
