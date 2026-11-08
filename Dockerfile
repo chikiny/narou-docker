@@ -65,6 +65,7 @@ RUN apt-get update \
       curl \
       unzip \
       tzdata \
+      imagemagick \
  && rm -rf /var/lib/apt/lists/*
 
 COPY --from=openssl /opt/openssl /opt/openssl
