@@ -74,7 +74,7 @@ python3 scripts/migrate-novel.py /Users/chikiny/convert_mobi/narou/novel ubuntu 
   - `.narou/local_setting.yaml`: `convert.copy-to` → `/convert_output`
   
   書き換えたときはログに `[init] ...` と出ます。Mac 側の元フォルダは変更されません。
-- 推測: 小説フォルダの `webnovel/syosetu.org.yaml`（ハーメルンの作者名の上書き）は、Fork 版 3.9.4 に同じ内容を取り込んだので不要です。残しておいても同じ値で上書きされるだけなので害はありません。
+- 事実: 小説フォルダの `webnovel/syosetu.org.yaml`（ハーメルンの作者名の上書き、`version: 1.2`）は、Fork 版 3.9.4 の同梱版（`version: 1.3`）に同じ内容を取り込んだので不要です。残しておくと、上書き側の `version` が同梱版より小さいため読み込まれず、update のたびに `/novel/webnovel/syosetu.org.yaml の内容が古いため読み込みをスキップしました` という ERROR が出ます（更新自体は同梱版の設定で続きます。2026-11-08 確認）。移したあとは削除するか、`.yaml` 以外の名前に変えてください（例: `syosetu.org.yaml.bak-v1.2`）。
 
 ### 1-4. LAN 内で動かして確認する
 
