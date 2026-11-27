@@ -38,7 +38,9 @@ services:
       - ${NOVEL_DIR}:/novel:ro
       - ${CONVERT_OUTPUT_DIR}:/convert_output
 
-  # 毎日決まった時刻に WEB UI へ「すべて更新」を依頼する
+  # 毎日決まった時刻に WEB UI へ「すべて更新」を依頼する。
+  # 1 日 1 回（NAROU_FULL_UPDATE_TIME）は凍結済みも含めて更新し、サイトの最終投稿日で凍結を付け外しする。
+  # 判定のため小説フォルダを読み取り専用でマウントする（付け外しは WEB UI の API で行う）
   scheduler:
     <<: *narou-image
     command: ["narou-scheduler.sh"]
@@ -47,8 +49,12 @@ services:
       NAROU_SKIP_INIT: "1"
       NAROU_URL: http://narou:33000
       NAROU_UPDATE_TIMES: ${NAROU_UPDATE_TIMES:-05:00}
+      NAROU_FULL_UPDATE_TIME: ${NAROU_FULL_UPDATE_TIME-03:30}
+      NAROU_FREEZE_AFTER_DAYS: ${NAROU_FREEZE_AFTER_DAYS:-30}
       NAROU_WEB_USER: ${NAROU_WEB_USER:-}
       NAROU_WEB_PASSWORD: ${NAROU_WEB_PASSWORD:-}
+    volumes:
+      - ${NOVEL_DIR}:/novel:ro
     depends_on:
       - narou
 
