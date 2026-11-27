@@ -4,10 +4,12 @@
 # サイト上の最終投稿日（database.yaml の general_lastup）を見て、凍結を付け外しすべき作品を出力する。
 # 付け外しは narou-scheduler.sh が WEB UI の API で行う。ここでは小説フォルダを読むだけで書き込まない。
 #
-# 使い方: narou-freeze-review.rb [--novel-dir DIR] [--days N] [--now EPOCH]
+# 使い方: narou-freeze-review.rb [--novel-dir DIR] [--days N] [--checked-since EPOCH] [--now EPOCH]
 #   DIR  narou の小説フォルダ（.narou があるフォルダ）。既定は /novel
 #   N    この日数より前に最終投稿があった作品を凍結する。既定は 30
-#   EPOCH 基準にする現在時刻（テスト用）
+#   --checked-since  last_check_date（narou が更新を確認できた時刻）がこれより前の作品は出力しない。
+#                    更新に失敗した作品は最終投稿日が古いままかもしれないため
+#   --now            基準にする現在時刻（テスト用）
 #
 # 判定（完結かどうかは見ない）:
 #   - general_lastup が N 日以内で凍結中 → off（凍結を解除する）
@@ -29,9 +31,11 @@ EXIT_RETRY = 3
 novel_dir = "/novel"
 days = 30
 now = Time.now
+checked_since = nil
 OptionParser.new do |opt|
   opt.on("--novel-dir DIR") { |v| novel_dir = v }
   opt.on("--days N", Integer) { |v| days = v }
+  opt.on("--checked-since EPOCH", Integer) { |v| checked_since = Time.at(v) }
   opt.on("--now EPOCH", Integer) { |v| now = Time.at(v) }
 end.parse!(ARGV)
 
@@ -73,6 +77,10 @@ rows = []
 database.each_value do |data|
   next unless data.is_a?(Hash)
   lastup = to_time(data["general_lastup"]) or next
+  if checked_since
+    checked = to_time(data["last_check_date"])
+    next if checked.nil? || checked < checked_since
+  end
   id = data["id"]
   is_frozen = frozen.key?(id) && frozen[id]
   action =

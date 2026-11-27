@@ -166,7 +166,7 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
 - `scheduler` が毎日 `NAROU_UPDATE_TIMES`（既定 `05:00`）に WEB UI へ「すべて更新」を依頼します。進捗は WEB UI のコンソールに出ます。
 - 今すぐ依頼する: `docker compose exec scheduler narou-scheduler.sh --now`
 - 毎日 `NAROU_FULL_UPDATE_TIME`（既定 `03:30`）に「毎日の処理」をします。キューが空になるのを待ってから凍結済みも含めて更新し（WEB UI の「凍結済みも更新」と同じ）、終わったらサイト上の最終投稿日で凍結を見直します。
-  - 最終投稿が `NAROU_FREEZE_AFTER_DAYS`（既定 30）日以内の凍結中の作品は凍結を解除し、それより前の凍結されていない作品は凍結します。完結かどうかは見ません。最終投稿日の無い作品は触りません。
+  - 最終投稿が `NAROU_FREEZE_AFTER_DAYS`（既定 30）日以内の凍結中の作品は凍結を解除し、それより前の凍結されていない作品は凍結します。完結かどうかは見ません。最終投稿日の無い作品と、この更新で確認できなかった作品（403 などで失敗したもの）は触りません。
   - 凍結すると epub-sorter はその作品の EPUB を `05_epub_end/` に振り分けます。
   - 毎日の処理の間に来た毎時の更新は飛ばします（ログに回数が出ます）。
   - 今すぐ行う: `docker compose exec scheduler narou-scheduler.sh --daily-now`（終わるまで戻りません）

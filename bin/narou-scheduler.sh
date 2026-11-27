@@ -6,7 +6,7 @@
 # 毎日 1 回（NAROU_FULL_UPDATE_TIME）は次の「毎日の処理」を行う:
 #   1. キューが空になるまで待つ
 #   2. 凍結済みも含めてすべて更新（/api/update force=true）し、終わるまで待つ
-#   3. narou-freeze-review.rb で、サイトの最終投稿日が NAROU_FREEZE_AFTER_DAYS 日以内の凍結中の作品は凍結を解除し、
+#   3. 2 で更新を確認できた作品について、narou-freeze-review.rb で、サイトの最終投稿日が NAROU_FREEZE_AFTER_DAYS 日以内の凍結中の作品は凍結を解除し、
 #      それより前の未凍結の作品は凍結する（/api/freeze_off・/api/freeze_on）
 #   毎日の処理の最中に来た毎時の更新は飛ばす（同じ作品を二重に取りに行かないため）。
 #
@@ -97,12 +97,13 @@ wait_queue_empty() {
   done
 }
 
-# 判定スクリプトを実行し、結果を REVIEW_OUTPUT に入れる。
+# run_freeze_review <開始エポック>: 判定スクリプトを実行し、結果を REVIEW_OUTPUT に入れる。
+# 開始より後に更新を確認できた作品だけを判定する（403 などで失敗した作品は最終投稿日が古いままのため）。
 # 管理ファイルの保存中で読めなければ（終了コード 3）少し待ってやり直す
 run_freeze_review() {
-  local i out rc
+  local since=$1 i out rc
   for i in 1 2 3 4 5; do
-    out=$(narou-freeze-review.rb --novel-dir "$NOVEL_DIR" --days "$FREEZE_AFTER_DAYS")
+    out=$(narou-freeze-review.rb --novel-dir "$NOVEL_DIR" --days "$FREEZE_AFTER_DAYS" --checked-since "$since")
     rc=$?
     if (( rc == 0 )); then
       REVIEW_OUTPUT=$out
@@ -139,6 +140,8 @@ daily_job() {
   log "毎日の処理を始めます（凍結済みも含めて更新 → 最終投稿から ${FREEZE_AFTER_DAYS} 日を基準に凍結を見直し）"
   log "前の処理が終わるのを待ちます"
   wait_queue_empty || { log "毎日の処理をやめます"; return 1; }
+  local started
+  started=$(date +%s)
   if ! api_post /api/update "force=true"; then
     log "凍結済みも含めた更新の依頼に失敗しました（HTTP $API_CODE）。毎日の処理をやめます"
     return 1
@@ -147,7 +150,7 @@ daily_job() {
   sleep 5
   wait_queue_empty || { log "更新が終わらないため、凍結の見直しをやめます"; return 1; }
   log "更新が終わりました。凍結を見直します"
-  run_freeze_review || return 1
+  run_freeze_review "$started" || return 1
   apply_freeze off
   apply_freeze on
   wait_queue_empty || true

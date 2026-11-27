@@ -96,4 +96,20 @@ class NarouFreezeReviewTest < Minitest::Test
     make_writable(dir)
     assert_equal before, snapshot(dir)
   end
+
+  # 毎日の処理で更新を確認できなかった作品（403 などで失敗した作品）は、最終投稿日が古いままかもしれないので触らない
+  def test_checked_since_skips_novels_not_checked
+    dir = novel_dir([
+      { id: 0, author: "A", title: "確認済み・古い", general_lastup: NOW - 40 * DAY, last_check_date: NOW - 600 },
+      { id: 1, author: "B", title: "未確認・古い", general_lastup: NOW - 40 * DAY, last_check_date: NOW - 2 * DAY },
+      { id: 2, author: "C", title: "未確認・日付なし", general_lastup: NOW - 40 * DAY },
+      { id: 3, author: "D", title: "確認済み・新しい・凍結中", frozen: true, general_lastup: NOW - DAY, last_check_date: NOW - 60 },
+    ])
+    out, err, status = run_review(dir, "--checked-since", (NOW - 3600).to_i.to_s)
+    assert_equal 0, status.exitstatus, err
+    assert_equal [
+      ["on", "0", "2026-10-18", "確認済み・古い"],
+      ["off", "3", "2026-11-26", "確認済み・新しい・凍結中"],
+    ], lines(out)
+  end
 end
