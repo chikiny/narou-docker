@@ -10,9 +10,6 @@
 #      それより前の未凍結の作品は凍結する（/api/freeze_off・/api/freeze_on）
 #   毎日の処理の最中に来た毎時の更新は飛ばす（同じ作品を二重に取りに行かないため）。
 #
-# NAROU_EXCLUDE_SITES（カンマ区切りのサイト名。例: ハーメルン）のサイトの作品は、毎時の更新・毎日の処理・凍結の見直しの
-# すべてから外す（凍結の状態もそのまま）。指定したときは、更新する作品の ID を narou-update-targets.rb で求めて渡す。
-#
 # 使い方: narou-scheduler.sh [--now | --daily-now]
 #   --now        いますぐ「すべて更新」を 1 回依頼して終わる
 #   --daily-now  いますぐ毎日の処理を 1 回行って終わる
@@ -25,7 +22,6 @@ FREEZE_AFTER_DAYS=${NAROU_FREEZE_AFTER_DAYS:-30}
 QUEUE_WAIT_MAX=${NAROU_QUEUE_WAIT_MAX:-21600}       # キューが空になるのを待つ上限（秒）
 QUEUE_POLL_SECONDS=${NAROU_QUEUE_POLL_SECONDS:-30}
 NOVEL_DIR=${NAROU_NOVEL_DIR:-/novel}
-EXCLUDE_SITES=${NAROU_EXCLUDE_SITES:-}
 
 log() { printf '%s [scheduler] %s\n' "$(date '+%F %T')" "$*"; }
 
@@ -77,43 +73,9 @@ api_post() {
   [[ "$API_CODE" == 2* ]]
 }
 
-# run_db_tool <コマンド> [引数...]: 小説フォルダを読むスクリプトを実行し、出力を TOOL_OUTPUT に入れる。
-# 管理ファイルの保存中で読めなければ（終了コード 3）少し待ってやり直す
-run_db_tool() {
-  local i out rc
-  for i in 1 2 3 4 5; do
-    out=$("$@")
-    rc=$?
-    if (( rc == 0 )); then
-      TOOL_OUTPUT=$out
-      return 0
-    fi
-    (( rc == 3 )) || { log "$1 が失敗しました（終了コード $rc）"; return 1; }
-    sleep 10
-  done
-  log "管理ファイルを読めませんでした（$1）"
-  return 1
-}
-
-# update_targets [--include-frozen]: /api/update に渡す ID を UPDATE_DATA に入れる。
-# NAROU_EXCLUDE_SITES が空なら何も入れない（すべて更新）。0 = 依頼してよい、1 = 失敗、2 = 対象が 0 件
-update_targets() {
-  UPDATE_DATA=()
-  [[ -z "$EXCLUDE_SITES" ]] && return 0
-  run_db_tool narou-update-targets.rb --novel-dir "$NOVEL_DIR" --exclude-sites "$EXCLUDE_SITES" "$@" || return 1
-  local id
-  for id in $TOOL_OUTPUT; do UPDATE_DATA+=("ids[]=$id"); done
-  (( ${#UPDATE_DATA[@]} )) || return 2
-}
-
 request_update() {
-  update_targets
-  case $? in
-    1) log "更新する作品を決められないため、今回の更新はやめます"; return ;;
-    2) log "更新する作品がありません（除外するサイト: $EXCLUDE_SITES）"; return ;;
-  esac
-  if api_post /api/update "${UPDATE_DATA[@]}"; then
-    log "更新を依頼しました（HTTP $API_CODE${EXCLUDE_SITES:+、${#UPDATE_DATA[@]} 件。除外するサイト: $EXCLUDE_SITES}）"
+  if api_post /api/update; then
+    log "更新を依頼しました（HTTP $API_CODE）"
   else
     log "更新の依頼に失敗しました（HTTP $API_CODE）"
   fi
@@ -137,10 +99,21 @@ wait_queue_empty() {
 
 # run_freeze_review <開始エポック>: 判定スクリプトを実行し、結果を REVIEW_OUTPUT に入れる。
 # 開始より後に更新を確認できた作品だけを判定する（403 などで失敗した作品は最終投稿日が古いままのため）。
+# 管理ファイルの保存中で読めなければ（終了コード 3）少し待ってやり直す
 run_freeze_review() {
-  run_db_tool narou-freeze-review.rb --novel-dir "$NOVEL_DIR" --days "$FREEZE_AFTER_DAYS" \
-    --checked-since "$1" --exclude-sites "$EXCLUDE_SITES" || { log "凍結の見直しをやめます"; return 1; }
-  REVIEW_OUTPUT=$TOOL_OUTPUT
+  local since=$1 i out rc
+  for i in 1 2 3 4 5; do
+    out=$(narou-freeze-review.rb --novel-dir "$NOVEL_DIR" --days "$FREEZE_AFTER_DAYS" --checked-since "$since")
+    rc=$?
+    if (( rc == 0 )); then
+      REVIEW_OUTPUT=$out
+      return 0
+    fi
+    (( rc == 3 )) || { log "凍結の判定に失敗しました（終了コード $rc）"; return 1; }
+    sleep 10
+  done
+  log "管理ファイルを読めないため、凍結の見直しをやめます"
+  return 1
 }
 
 # apply_freeze <on|off>: REVIEW_OUTPUT のうち該当する作品の凍結を付け外しする
@@ -167,14 +140,9 @@ daily_job() {
   log "毎日の処理を始めます（凍結済みも含めて更新 → 最終投稿から ${FREEZE_AFTER_DAYS} 日を基準に凍結を見直し）"
   log "前の処理が終わるのを待ちます"
   wait_queue_empty || { log "毎日の処理をやめます"; return 1; }
-  local started rc
-  update_targets --include-frozen
-  rc=$?
-  (( rc == 1 )) && { log "更新する作品を決められないため、毎日の処理をやめます"; return 1; }
-  (( rc == 2 )) && { log "更新する作品がありません（除外するサイト: $EXCLUDE_SITES）。毎日の処理を終わります"; return 0; }
-  [[ -n "$EXCLUDE_SITES" ]] && log "除外するサイト: $EXCLUDE_SITES（更新するのは ${#UPDATE_DATA[@]} 件）"
+  local started
   started=$(date +%s)
-  if ! api_post /api/update "force=true" "${UPDATE_DATA[@]}"; then
+  if ! api_post /api/update "force=true"; then
     log "凍結済みも含めた更新の依頼に失敗しました（HTTP $API_CODE）。毎日の処理をやめます"
     return 1
   fi

@@ -112,15 +112,4 @@ class NarouFreezeReviewTest < Minitest::Test
       ["off", "3", "2026-11-26", "確認済み・新しい・凍結中"],
     ], lines(out)
   end
-
-  def test_exclude_sites_are_untouched
-    dir = novel_dir([
-      { id: 0, author: "A", title: "ハーメルン・古い", sitename: "ハーメルン", general_lastup: NOW - 40 * DAY },
-      { id: 1, author: "B", title: "ハーメルン・新しい・凍結中", sitename: "ハーメルン", frozen: true, general_lastup: NOW - DAY },
-      { id: 2, author: "C", title: "なろう・古い", general_lastup: NOW - 40 * DAY },
-    ])
-    out, err, status = run_review(dir, "--exclude-sites", "ハーメルン,カクヨム")
-    assert_equal 0, status.exitstatus, err
-    assert_equal [["on", "2", "2026-10-18", "なろう・古い"]], lines(out)
-  end
 end

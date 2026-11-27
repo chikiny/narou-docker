@@ -170,7 +170,6 @@ Mac のブラウザから確認したいときは、`.env` の `NAROU_BIND_ADDR`
   - 凍結すると epub-sorter はその作品の EPUB を `05_epub_end/` に振り分けます。
   - 毎日の処理の間に来た毎時の更新は飛ばします（ログに回数が出ます）。
   - 今すぐ行う: `docker compose exec scheduler narou-scheduler.sh --daily-now`（終わるまで戻りません）
-- `.env` の `NAROU_EXCLUDE_SITES`（カンマ区切り。例: `ハーメルン`）に書いたサイトの作品は、毎時の更新・毎日の処理・凍結の見直しのすべてから外れます（凍結の状態もそのまま）。サイトが一時的に取得できないときに使います。変えたら `docker compose up -d` で反映します。
 
 ### アプリを新しい版に更新する
 
