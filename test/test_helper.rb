@@ -19,7 +19,7 @@ module EpubSorterTestHelper
   CLASSIFY = File.join(BIN_DIR, "epub-sorter-classify.rb")
   SORTER = File.join(BIN_DIR, "epub-sorter.sh")
 
-  # novels: [{ id:, author:, title:, sitename:, end:, frozen:, toc_url:, folder: }]
+  # novels: [{ id:, author:, title:, sitename:, end:, frozen:, toc_url:, folder:, general_lastup: }]
   # folder: false にすると小説の保存フォルダを作らない
   def make_novel_dir(root, novels, local_setting: { "convert.filename-to-ncode" => false })
     FileUtils.mkdir_p(File.join(root, ".narou"))
@@ -40,6 +40,7 @@ module EpubSorterTestHelper
         "last_update" => Time.at(0),
         "use_subdirectory" => false,
       }
+      database[n[:id]]["general_lastup"] = n[:general_lastup] if n.key?(:general_lastup)
       freeze[n[:id]] = true if n[:frozen]
       next if n[:folder] == false
       FileUtils.mkdir_p(File.join(root, "小説データ", database[n[:id]]["sitename"], file_title))
